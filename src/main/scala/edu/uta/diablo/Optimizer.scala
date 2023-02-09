@@ -15,11 +15,14 @@
  */
 package edu.uta.diablo
 import scala.annotation.tailrec
+import scala.collection.mutable.Map
 
 object Optimizer {
   import AST._
   import Normalizer.{normalizeAll,comprVars,inverse}
-  import ComprehensionTranslator.{isBlockTensor,isTensor,qual_vars}
+  import ComprehensionTranslator.{isBlockTensor,isTensor,qual_vars,correlated_indices}
+  import Typechecker.{typecheck}
+  import Lifting.lift
 
   /* general span for comprehensions; if a qualifier matches, split there and continue with cont */
   @tailrec
@@ -248,6 +251,141 @@ object Optimizer {
                                                  c => Some(List(b1,b2,c)))
                                   case _ => None })
                  case _ => None })
+  
+  /*def dimension( e: Expr): List[Int] = 
+    e match {
+      /*case Call("rdd_block_tensor_2_0",List(d,s,comp))
+        => d match {
+          case Tuple(value) => 
+            val vv = value.map{ 
+              case IntConst(y) => y
+              case _ => 0
+            }
+            vv
+          case _ => List(0)
+        }*/
+      case Var(x)
+        => val x_type = typecheck(e)
+          println(x_type)
+          x_type match {
+            case StorageType(_,_,dims) => dims.map{
+              case IntConst(value) => value
+              case e1@Nth(v,idx) => println(typecheck(e1));10 // TODO: fix the Nth expr
+              case _ => 0
+            }
+            case _ => List(0)
+          }
+      case Comprehension(i,qs) 
+        => 
+      case _ => List(0)
+    }
+
+  def cost( g: Generator): Int = 
+    g match {
+      case Generator(ii,Call(_,List(_,_,c@Comprehension(_,_))))
+        => val e_vars = patvars(ii).toSet
+          e_vars.map(println)
+          cost(c)
+      case Generator(ii,x)
+        => val e_vars = patvars(ii).toSet
+          e_vars.map(println)
+          cost(x)
+    }
+  def cost( e: Expr): Int = 
+  { println(e)
+    e match {
+      /*case Call("rdd_block_tensor_2_0",List(d,s,comp))
+        => dimension(e).reduce(_+_)*/
+      case Var(t)
+        => val e1 = lift(e)
+          dimension(e).reduce(_+_)
+      case Comprehension(i,qs)
+        => val generator_cost = qs.map{ 
+          // TODO: Create a hashmap index -> Int dimensions
+          case gen@Generator(ii,x)
+            => val e_vars = patvars(ii).toSet
+            //e_vars.map(println)
+            println(cost(gen))
+            // TODO: Modify hashmap index -> Int dimensions
+            1
+          case _ => 1
+        }
+        val predicate_cost = qs.map{
+          case p@Predicate(u)
+            => val e_vars = freevars(u).toSet
+            e_vars.map(println)
+            1
+          case _ => 1
+        }
+        0
+        /*val e_vars = freevars(e).toSet
+        val cis = correlated_indices(List(qs1,qs2,p),e_vars)
+        cost(qs1)*cost(qs2)/cis.size*/
+      case _ => 0
+    }
+  }*/
+
+  def dimension( e: Expr): List[Int] = 
+    e match {
+      case Var(x)
+        => val x_type = typecheck(e)
+          x_type match {
+            case StorageType(_,_,dims) => dims.map{
+              case IntConst(value) => value
+              case e1@Nth(v,idx) => 10 // TODO: fix the Nth expr
+              case _ => 0
+            }
+            case _ => List(0)
+          }
+      case _ => List(0)
+    }
+
+  def cost( e: Expr): (Int,List[Int]) =
+    e match {
+      case Var(t)
+        => val dims = dimension(e)
+          (0,dims) // Cost is 0 for a tensor
+      case Comprehension(Tuple(List(h,r)),qs)
+        => var dimension_map: Map[String,Int] = Map() // Map to store size of each index
+          val generator_cost = qs.map{
+          case Generator(ii,Call(_,List(_,_,c@Comprehension(_,_))))
+            => val e_vars = patvars(ii).toSet.toList
+              val comp_cost = cost(c)
+              for(i<- 0 to comp_cost._2.length-1)
+                dimension_map = dimension_map + (e_vars(i)->comp_cost._2(i))
+              comp_cost
+          case Generator(ii,x)
+            => val e_vars = patvars(ii).toSet.toList
+              lift(x)
+              val comp_cost = cost(x)
+              for(i<- 0 to comp_cost._2.length-1)
+                dimension_map = dimension_map + (e_vars(i)->comp_cost._2(i))
+              comp_cost
+          case p@Predicate(u)
+            => val pred_vars = freevars(u).toSet.toList
+            dimension_map(pred_vars(0)) = 0
+            (0,List())
+          case _ => (0,List())
+        }
+        var comprehension_cost = 1
+        for(dm <- dimension_map) 
+          if(dm._2 != 0) 
+            comprehension_cost = comprehension_cost*dm._2
+        var dim_list: List[Int] = List()
+        val head_indices = freevars(h)
+        for(hi <- head_indices)
+          dim_list = dim_list:+dimension_map(hi)
+        for(gc <- generator_cost) 
+          comprehension_cost+=gc._1
+        (comprehension_cost,dim_list)
+      case _ => (0,List(0))
+    }
+  
+  def isNestedComprehension( g: Generator): Boolean =
+    g match {
+      case Generator(ii,Call(_,List(_,_,c@Comprehension(_,_)))) => true
+      case _ => false
+    }
 
   var CRTcache: Option[List[Expr]] = None
 
@@ -334,6 +472,196 @@ object Optimizer {
                   optimize(Comprehension(h,nqs))
              case _ => apply(e,optimize)
            }
+      /*case Comprehension(
+            Tuple(List(i,reduce(op1,v))),
+            List(
+              Generator(h,
+                Call(rdd_block_tensor_2_0,
+                  List(l1,l2,
+                    Comprehension(Tuple(List(j,
+                      reduce(op2,v1))),
+                      List(
+                      qs1,
+                      Generator(TuplePat(List(TuplePat(List(jj_1,jj_2)),bb)),y),
+                      p1,LetBinding(v2,MethodCall(a1,op3,List(b1))),qs2)
+                    )
+                  )
+                )
+              ),
+              Generator(TuplePat(List(TuplePat(List(kk_1,kk_2)),cc)),z),
+              p2,LetBinding(v3,MethodCall(a2,op4,List(c1))),qs3
+            )
+          )
+        => Comprehension(
+            Tuple(List(i,reduce(op1,v))),
+            List(
+              qs1,
+              Generator(TuplePat(List(TuplePat(List(jj_1,kk_2)),VarPat("ab"))),
+                Call(rdd_block_tensor_2_0,
+                  List(l1,l2,
+                    Comprehension(Tuple(List(Tuple(List(Var("jj_1"),Var("kk_2"))),
+                      reduce(op2,v1))),
+                      List(
+                      Generator(TuplePat(List(TuplePat(List(jj_1,jj_2)),bb)),y),
+                      Generator(TuplePat(List(TuplePat(List(kk_1,kk_2)),cc)),z),
+                      p2,LetBinding(v2,MethodCall(b1,op4,List(c1))),
+                      GroupByQual(
+                        TuplePat(List(jj_1,kk_2)),Tuple(List(Var("jj_1"),Var("kk_2")))
+                      ))
+                    )
+                  )
+                )
+              ),
+              p1,LetBinding(v3,MethodCall(a1,op3,List(a2))),qs3
+            )
+          )*/
+
+      /*case Comprehension(
+            Tuple(List(i,reduce(op1,v))),
+            List(
+              Generator(h,
+                Call(f,
+                  List(l1,l2,
+                    Comprehension(Tuple(List(j,
+                      reduce(op2,v1))),
+                      List(
+                      qs1@Generator(_,_),
+                      Generator(TuplePat(List(TuplePat(List(jj_1,jj_2)),bb)),y),
+                      p1@Predicate(_),LetBinding(v2,MethodCall(a1,op3,List(b1))),qs2@GroupByQual(_,_))
+                    )
+                  )
+                )
+              ),
+              Generator(TuplePat(List(TuplePat(List(kk_1,kk_2)),cc)),z),
+              p2@Predicate(_),LetBinding(v3,MethodCall(a2,op4,List(c1))),qs3@GroupByQual(_,_)
+            )
+          )
+        => println(cost(e))
+          val e1 = Comprehension(
+            Tuple(List(i,reduce(op1,v))),
+            List(
+              qs1,
+              Generator(TuplePat(List(TuplePat(List(jj_1,kk_2)),VarPat("ab"))),
+                Call(f,
+                  List(l1,l2,
+                    Comprehension(Tuple(List(Tuple(List(Var("jj_1"),Var("kk_2"))),
+                      reduce(op2,v1))),
+                      List(
+                      Generator(TuplePat(List(TuplePat(List(jj_1,jj_2)),bb)),y),
+                      Generator(TuplePat(List(TuplePat(List(kk_1,kk_2)),cc)),z),
+                      p2,LetBinding(v2,MethodCall(b1,op4,List(c1))),
+                      GroupByQual(
+                        TuplePat(List(jj_1,kk_2)),Tuple(List(Var("jj_1"),Var("kk_2")))
+                      ))
+                    )
+                  )
+                )
+              ),
+              p1,LetBinding(v3,MethodCall(a1,op3,List(a2))),qs3
+            )
+          )
+          println(cost(e1))
+          e1*/
+      case Comprehension(
+            Tuple(List(i,reduce(op1,v))),
+            List(
+              Generator(h,
+                Call(f,
+                  List(l1,l2,
+                    Comprehension(Tuple(List(j,
+                      reduce(op2,v1))),
+                      List(
+                      qs1@Generator(_,_),
+                      Generator(TuplePat(List(TuplePat(List(jj_1,jj_2)),bb)),y),
+                      p1@Predicate(_),LetBinding(v2,MethodCall(a1,op3,List(b1))),qs2@GroupByQual(_,_))
+                    )
+                  )
+                )
+              ),
+              Generator(TuplePat(List(TuplePat(List(kk_1,kk_2)),cc)),z),
+              p2@Predicate(_),LetBinding(v3,MethodCall(a2,op4,List(c1))),qs3@GroupByQual(_,_)
+            )
+          )
+        => println(cost(e))
+          val e1 = Comprehension(
+            Tuple(List(i,reduce(op1,v))),
+            List(
+              qs1,
+              Generator(TuplePat(List(TuplePat(List(jj_1,kk_2)),VarPat("ab"))),
+                Call(f,
+                  List(l1,l2,
+                    Comprehension(Tuple(List(Tuple(List(Var("jj_1"),Var("kk_2"))),
+                      reduce(op2,v1))),
+                      List(
+                      Generator(TuplePat(List(TuplePat(List(jj_1,jj_2)),bb)),y),
+                      Generator(TuplePat(List(TuplePat(List(kk_1,kk_2)),cc)),z),
+                      p2,LetBinding(v2,MethodCall(b1,op4,List(c1))),
+                      GroupByQual(
+                        TuplePat(List(jj_1,kk_2)),Tuple(List(Var("jj_1"),Var("kk_2")))
+                      ))
+                    )
+                  )
+                )
+              ),
+              p1,LetBinding(v3,MethodCall(a1,op3,List(a2))),qs3
+            )
+          )
+          println(cost(e1))
+          e1
+
+      /*case Comprehension(h,g1@Generator(_,_)::g2@Generator(_,_)::_) => 
+        if(isNestedComprehension(g1) || isNestedComprehension(g2))
+        => val cost1 = cost(e)
+          if(isNestedComprehension(g1)) {
+            e match {
+              case Comprehension(hi,
+                List(
+                  Generator(TuplePat(List(i,ab)),
+                    Call(f,
+                      List(l1,l2,
+                        Comprehension(Tuple(List(j,
+                          reduce(op2,v1))),
+                          List(
+                          qs1@Generator(_,_),
+                          Generator(TuplePat(List(TuplePat(List(jj_1,jj_2)),bb)),y),
+                          p1@Predicate(_),LetBinding(v2,MethodCall(a1,op3,List(b1))),qs2@GroupByQual(_,_))
+                        )
+                      )
+                    )
+                  ),
+                  Generator(TuplePat(List(TuplePat(List(kk_1,kk_2)),cc)),z),
+                  p2@Predicate(_),LetBinding(v3,MethodCall(a2,op4,List(c1))),qs3@GroupByQual(_,_)
+                )
+              ) => val e1 = Comprehension(
+                  Tuple(List(i,reduce(op1,v))),
+                  List(
+                    qs1,
+                    Generator(TuplePat(List(TuplePat(List(jj_1,kk_2)),ab)),
+                      Call(f,
+                        List(l1,l2,
+                          Comprehension(Tuple(List(Tuple(List(Var("jj_1"),Var("kk_2"))),
+                            reduce(op2,v1))),
+                            List(
+                            Generator(TuplePat(List(TuplePat(List(jj_1,jj_2)),bb)),y),
+                            Generator(TuplePat(List(TuplePat(List(kk_1,kk_2)),cc)),z),
+                            p2,LetBinding(v2,MethodCall(b1,op4,List(c1))),
+                            GroupByQual(
+                              TuplePat(List(jj_1,kk_2)),Tuple(List(Var("jj_1"),Var("kk_2")))
+                            ))
+                          )
+                        )
+                      )
+                    ),
+                    p1,LetBinding(v3,MethodCall(a1,op3,List(a2))),qs3
+                  )
+                )
+                val cost2 = cost(e1)
+            }
+          }
+          else if(isNestedComprehension(g2)) {
+
+          }*/
+      
       case Comprehension(h,qs)
         => qs.span{ case GroupByQual(p,k) if constantKey(k) => false; case _ => true } match {
               case (r,GroupByQual(VarPat(k),u)::s)
