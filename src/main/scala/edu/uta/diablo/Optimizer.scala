@@ -337,6 +337,11 @@ object Optimizer {
             }
             case _ => List(0)
           }
+      case Tuple(dims)
+        => dims.map{
+          case IntConst(value) => value
+          case _ => 0
+        }
       case _ => List(0)
     }
 
@@ -348,6 +353,12 @@ object Optimizer {
       case Comprehension(Tuple(List(h,r)),qs)
         => var dimension_map: Map[String,Int] = Map() // Map to store size of each index
           val generator_cost = qs.map{
+          case Generator(ii,Call(_,List(dn,_,c@Comprehension(_,List(Generator(_,Range(_,_,_)),Generator(_,Range(_,_,_)))))))
+            => val dims = dimension(dn)
+            val e_vars = patvars(ii).toSet.toList
+            for(i<- 0 to dims.length-1)
+              dimension_map = dimension_map + (e_vars(i)->dims(i))
+            (0,dims)
           case Generator(ii,Call(_,List(_,_,c@Comprehension(_,_))))
             => val e_vars = patvars(ii).toSet.toList
               val comp_cost = cost(c)
@@ -368,15 +379,16 @@ object Optimizer {
           case _ => (0,List())
         }
         var comprehension_cost = 1
-        for(dm <- dimension_map) 
+        for(dm <- dimension_map)
           if(dm._2 != 0) 
             comprehension_cost = comprehension_cost*dm._2
         var dim_list: List[Int] = List()
         val head_indices = freevars(h)
         for(hi <- head_indices)
           dim_list = dim_list:+dimension_map(hi)
-        for(gc <- generator_cost) 
+        for(gc <- generator_cost) {
           comprehension_cost+=gc._1
+        }
         (comprehension_cost,dim_list)
       case _ => (0,List(0))
     }
@@ -563,9 +575,9 @@ object Optimizer {
           println(cost(e1))
           e1*/
       case Comprehension(
-            Tuple(List(i,reduce(op1,v))),
+            Tuple(List(Tuple(List(iii_1,kkk_2)),reduce(op1,v))),
             List(
-              Generator(h,
+              Generator(TuplePat(List(i,ab)),
                 Call(f,
                   List(l1,l2,
                     Comprehension(Tuple(List(j,
@@ -573,7 +585,7 @@ object Optimizer {
                       List(
                       qs1@Generator(_,_),
                       Generator(TuplePat(List(TuplePat(List(jj_1,jj_2)),bb)),y),
-                      p1@Predicate(_),LetBinding(v2,MethodCall(a1,op3,List(b1))),qs2@GroupByQual(_,_))
+                      p1@Predicate(MethodCall(iii_2,"==",List(jjj_1))),LetBinding(v2,MethodCall(a1,op3,List(b1))),qs2@GroupByQual(_,_))
                     )
                   )
                 )
@@ -582,22 +594,22 @@ object Optimizer {
               p2@Predicate(_),LetBinding(v3,MethodCall(a2,op4,List(c1))),qs3@GroupByQual(_,_)
             )
           )
-        => println(cost(e))
+        => val cost_e = cost(e)
           val e1 = Comprehension(
-            Tuple(List(i,reduce(op1,v))),
+            Tuple(List(Tuple(List(iii_1,kkk_2)),reduce(op1,v))),
             List(
               qs1,
-              Generator(TuplePat(List(TuplePat(List(jj_1,kk_2)),VarPat("ab"))),
+              Generator(TuplePat(List(TuplePat(List(jj_1,kk_2)),ab)),
                 Call(f,
                   List(l1,l2,
-                    Comprehension(Tuple(List(Tuple(List(Var("jj_1"),Var("kk_2"))),
+                    Comprehension(Tuple(List(Tuple(List(jjj_1,kkk_2)),
                       reduce(op2,v1))),
                       List(
                       Generator(TuplePat(List(TuplePat(List(jj_1,jj_2)),bb)),y),
                       Generator(TuplePat(List(TuplePat(List(kk_1,kk_2)),cc)),z),
                       p2,LetBinding(v2,MethodCall(b1,op4,List(c1))),
                       GroupByQual(
-                        TuplePat(List(jj_1,kk_2)),Tuple(List(Var("jj_1"),Var("kk_2")))
+                        TuplePat(List(jj_1,kk_2)),Tuple(List(jjj_1,kkk_2))
                       ))
                     )
                   )
@@ -606,8 +618,9 @@ object Optimizer {
               p1,LetBinding(v3,MethodCall(a1,op3,List(a2))),qs3
             )
           )
-          println(cost(e1))
-          e1
+          val cost_e1 = cost(e1)
+          if(cost_e._1 > cost_e1._1) e1
+          else e
 
       /*case Comprehension(h,g1@Generator(_,_)::g2@Generator(_,_)::_) => 
         if(isNestedComprehension(g1) || isNestedComprehension(g2))

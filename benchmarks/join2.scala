@@ -102,8 +102,9 @@ object Join {
       var t = System.currentTimeMillis()
       try {
           val C = q("""
-          tensor*(10,10)[ ((ii_1,kk_2),+/v) | ((ii_1,jj_2),ab) <- tensor*(10,10)[((ii_1,jj_2),+/v1) | ((ii_1,ii_2),a) <- AA, ((jj_1,jj_2),b) <- BB, ii_2 == jj_1, let v1 = a*b, group by (ii_1,jj_2) ], 
-            ((kk_1,kk_2),c) <- CC, jj_2 == kk_1, let v=ab*c, group by (ii_1,kk_2)];
+          tensor*(10,10)[ ((ii_1,kk_2),+/v) | ((ii_1,jj_2),ab) <- tensor*(10,10)[((ii_1,jj_2),+/v1) | ((ii_1,ii_2),a) <- tensor*(10,100)[ ((i,j),random()) | i <- 0..(10-1), j <- 0..(1000-1)], 
+          ((jj_1,jj_2),b) <- tensor*(100,1000)[ ((i,j),random()) | i <- 0..(1000-1), j <- 0..(10-1)], ii_2 == jj_1, let v1 = a*b, group by (ii_1,jj_2) ], 
+            ((kk_1,kk_2),c) <- tensor*(1000,10)[ ((i,j),random()) | i <- 0..(10-1), j <- 0..(10-1)], jj_2 == kk_1, let v=ab*c, group by (ii_1,kk_2)];
           """)
           C._3.count()
           //C._3.collect.map(i => i._2._3.map(println))
