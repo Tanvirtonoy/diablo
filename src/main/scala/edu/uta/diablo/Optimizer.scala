@@ -342,6 +342,7 @@ object Optimizer {
           case IntConst(value) => value
           case _ => 0
         }
+      case IntConst(value) => List(value)
       case _ => List(0)
     }
 
@@ -353,7 +354,7 @@ object Optimizer {
       case Comprehension(Tuple(List(h,r)),qs)
         => var dimension_map: Map[String,Int] = Map() // Map to store size of each index
           val generator_cost = qs.map{
-          case Generator(ii,Call(_,List(dn,_,c@Comprehension(_,List(Generator(_,Range(_,_,_)),Generator(_,Range(_,_,_)))))))
+          case Generator(ii,Call(_,List(dn,_,c@Comprehension(_,Generator(_,Range(_,_,_))::_))))
             => val dims = dimension(dn)
             val e_vars = patvars(ii).toSet.toList
             for(i<- 0 to dims.length-1)
@@ -389,6 +390,8 @@ object Optimizer {
         for(gc <- generator_cost) {
           comprehension_cost+=gc._1
         }
+        println(e)
+        println(comprehension_cost)
         (comprehension_cost,dim_list)
       case _ => (0,List(0))
     }
@@ -574,7 +577,7 @@ object Optimizer {
           )
           println(cost(e1))
           e1*/
-      case Comprehension(
+      /*case Comprehension(
             Tuple(List(Tuple(List(iii_1,kkk_2)),reduce(op1,v))),
             List(
               Generator(TuplePat(List(i,ab)),
@@ -594,8 +597,8 @@ object Optimizer {
               p2@Predicate(_),LetBinding(v3,MethodCall(a2,op4,List(c1))),qs3@GroupByQual(_,_)
             )
           )
-        => val cost_e = cost(e)
-          val e1 = Comprehension(
+          if(op1 == op2)
+        => val e1 = Comprehension(
             Tuple(List(Tuple(List(iii_1,kkk_2)),reduce(op1,v))),
             List(
               qs1,
@@ -618,9 +621,71 @@ object Optimizer {
               p1,LetBinding(v3,MethodCall(a1,op3,List(a2))),qs3
             )
           )
+          val cost_e = cost(e)
           val cost_e1 = cost(e1)
           if(cost_e._1 > cost_e1._1) e1
-          else e
+          else e*/
+
+      case Comprehension(
+            Tuple(List(iii,reduce(op1,v))),
+            List(
+              Generator(TuplePat(List(i,ab)),
+                Call(f,
+                  List(dn,sn,
+                    Comprehension(Tuple(List(j,
+                      reduce(op2,v1))),
+                      List(
+                      g1@Generator(_,_),
+                      g2@Generator(TuplePat(List(jj,b)),_),
+                      p1@Predicate(MethodCall(iii_2,"==",List(jjj_1))),
+                      LetBinding(v2,MethodCall(a1,op3,List(b1))),
+                      qs1@GroupByQual(_,_))
+                    )
+                  )
+                )
+              ),
+              g3@Generator(TuplePat(List(kk,cc)),z),
+              p2@Predicate(u),LetBinding(v3,MethodCall(a2,op4,List(c1))),
+              qs2@GroupByQual(_,_)
+            )
+          )
+        => println("Test")
+        val jj_kk = (patvars(jj).toSet.toList++patvars(kk).toSet.toList).diff(freevars(u).toSet.toList)
+        val jj_1 = if(jj_kk.length == 1) VarPat(jj_kk(0)) else TuplePat(jj_kk.map(jk => VarPat(jk)))
+        var jjj_1 = if(jj_kk.length == 1) Var(jj_kk(0)) else Tuple(jj_kk.map(jk => Var(jk)))
+        println(jj_1)
+        println(jjj_1)
+        val comp1 = Comprehension(Tuple(List(jjj_1,reduce(op2,v1))),
+                    List(g2,g3,p2,
+                      LetBinding(v2,MethodCall(b1,op4,List(c1))),
+                      GroupByQual(jj_1,jjj_1)
+                    )
+                  )
+        val comp1_cost = cost(comp1)
+        println(comp1_cost)
+        val f1 = "rdd_block_tensor_"+comp1_cost._2.length+"_0"
+        val dn1 = Tuple(comp1_cost._2.map(x => IntConst(x)))
+        val e1 = Comprehension(Tuple(List(iii,reduce(op1, v))),
+          List(
+            g1,
+            Generator(TuplePat(List(jj_1,ab)),
+              Call(f1, // tensor_dim
+                List(dn1,sn,
+                  comp1
+                )
+              )
+            ),
+            p1,
+            LetBinding(v3,MethodCall(a1,op3,List(a2))),
+            qs2
+          )
+        )
+        val cost_e = cost(e)
+        val cost_e1 = cost(e1)
+        println(cost_e)
+        println(cost_e1)
+        if(cost_e._1 > cost_e1._1) e1
+        else e
 
       /*case Comprehension(h,g1@Generator(_,_)::g2@Generator(_,_)::_) => 
         if(isNestedComprehension(g1) || isNestedComprehension(g2))

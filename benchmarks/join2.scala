@@ -102,9 +102,12 @@ object Join {
       var t = System.currentTimeMillis()
       try {
           val C = q("""
-          tensor*(10,10)[ ((ii_1,kk_2),+/v) | ((ii_1,jj_2),ab) <- tensor*(10,10)[((ii_1,jj_2),+/v1) | ((ii_1,ii_2),a) <- tensor*(10,100)[ ((i,j),random()) | i <- 0..(10-1), j <- 0..(1000-1)], 
-          ((jj_1,jj_2),b) <- tensor*(100,1000)[ ((i,j),random()) | i <- 0..(1000-1), j <- 0..(10-1)], ii_2 == jj_1, let v1 = a*b, group by (ii_1,jj_2) ], 
-            ((kk_1,kk_2),c) <- tensor*(1000,10)[ ((i,j),random()) | i <- 0..(10-1), j <- 0..(10-1)], jj_2 == kk_1, let v=ab*c, group by (ii_1,kk_2)];
+          tensor*(10,10)[ ((ii_1,kk_2),+/v) | ((ii_1,jj_2),ab) <- tensor*(10,1000)[((ii_1,jj_2),+/v1) | 
+          ((ii_1,ii_2),a) <- tensor*(10,100)[ ((i,j),random()) | i <- 0..(10-1), j <- 0..(100-1)], 
+          ((jj_1,jj_2),b) <- tensor*(100,1000)[ ((i,j),random()) | i <- 0..(100-1), j <- 0..(1000-1)], 
+          ii_2 == jj_1, let v1 = a*b, group by (ii_1,jj_2) ], 
+          ((kk_1,kk_2),c) <- tensor*(1000,10)[ ((i,j),random()) | i <- 0..(1000-1), j <- 0..(10-1)], 
+          jj_2 == kk_1, let v=ab*c, group by (ii_1,kk_2)];
           """)
           C._3.count()
           //C._3.collect.map(i => i._2._3.map(println))
@@ -124,6 +127,39 @@ object Join {
             //C._3.collect.map(i => i._2._3.map(println))
         } catch { case x: Throwable => println(x); return -1.0 }
         (System.currentTimeMillis()-t)/1000.0
+    }*/
+
+    def testMultiplyHandWritten3(): Double = {
+      var t = System.currentTimeMillis()
+      try {
+          val C = q("""
+          tensor*(10)[ (ii_1,+/v) | ((ii_1,jj_2),ab) <- tensor*(10,1000)[((ii_1,jj_2),+/v1) | 
+          ((ii_1,ii_2),a) <- tensor*(10,100)[ ((i,j),random()) | i <- 0..(10-1), j <- 0..(100-1)], 
+          ((jj_1,jj_2),b) <- tensor*(100,1000)[ ((i,j),random()) | i <- 0..(100-1), j <- 0..(1000-1)], 
+          ii_2 == jj_1, let v1 = a*b, group by (ii_1,jj_2) ], 
+          (kk,c) <- tensor*(1000)[ (i,random()) | i <- 0..(1000-1)], 
+          jj_2 == kk, let v=ab*c, group by ii_1];
+          """)
+          C._3.count()
+          //C._3.collect.map(i => i._2._3.map(println))
+      } catch { case x: Throwable => println(x); return -1.0 }
+      (System.currentTimeMillis()-t)/1000.0
+    }
+
+    /*def testMultiplyHandWritten3(): Double = {
+      var t = System.currentTimeMillis()
+      try {
+          val C = q("""
+          tensor*(10)[ (ii_1,+/v) | ((ii_1,ii_2),a) <- tensor*(10,100)[ ((i,j),random()) | i <- 0..(10-1), j <- 0..(100-1)],
+          (jj_1,bc) <- tensor*(100)[(jj_1,+/v1) | ((jj_1,jj_2),b) <- tensor*(100,1000)[ ((i,j),random()) | i <- 0..(100-1), j <- 0..(1000-1)],
+          (kk,c) <- tensor*(1000)[ (i,random()) | i <- 0..(1000-1)],
+          jj_2 == kk, let v1=b*c, group by jj_1],
+          ii_2 == jj_1, let v = a*bc, group by ii_1 ];
+          """)
+          C._3.count()
+          //C._3.collect.map(i => i._2._3.map(println))
+      } catch { case x: Throwable => println(x); return -1.0 }
+      (System.currentTimeMillis()-t)/1000.0
     }*/
 
     def test ( name: String, f: => Double ) {
@@ -146,7 +182,8 @@ object Join {
     }
 
     //test("Handwritten Add",testAddHandWritten)
-    test("Handwritten Multiply",testMultiplyHandWritten2)
+    test("Handwritten Multiply",testMultiplyHandWritten3)
+    test("Handwritten Multiply",testMultiplyHandWritten3)
 
     spark_context.stop()
   }
