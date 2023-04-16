@@ -649,6 +649,9 @@ object Optimizer {
               qs2@GroupByQual(_,_)
             )
           )
+          if(op1 == op2 && 
+            ((op1 == "+" && op4 == "*") || (op1 == "min" && op4 == "max") || (op1 == "max" && op4 == "min"))
+          )
         => println("Test")
         val jj_kk = (patvars(jj).toSet.toList++patvars(kk).toSet.toList).diff(freevars(u).toSet.toList)
         val jj_1 = if(jj_kk.length == 1) VarPat(jj_kk(0)) else TuplePat(jj_kk.map(jk => VarPat(jk)))
